@@ -1,0 +1,59 @@
+---
+- name: Install gdrcopy from source and deb packages
+  hosts: all
+  become: yes
+  vars:
+    gdrcopy_version: "2.5"
+    gdrcopy_url: "https://github.com/NVIDIA/gdrcopy/archive/refs/tags/v{{ gdrcopy_version }}.tar.gz"
+    cuda_path: "/usr/local/cuda"
+    ubuntu_version_tag: "Ubuntu22_04"
+    cuda_version_tag: "cuda12.8"
+
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - build-essential
+          - devscripts
+          - debhelper
+          - fakeroot
+          - pkg-config
+          - dkms
+        state: present
+        update_cache: yes
+    - name: Download gdrcopy source
+      get_url:
+        url: "{{ gdrcopy_url }}"
+        dest: "/tmp/gdrcopy-{{ gdrcopy_version }}.tar.gz"
+        mode: '0644'
+    
+
+    - name: Extract gdrcopy source
+      unarchive:
+        src: "/tmp/gdrcopy-{{ gdrcopy_version }}.tar.gz"
+        dest: "/tmp"
+        remote_src: yes
+
+    - name: Build gdrcopy deb packages
+      ansible.builtin.shell: |
+        ./build-deb-packages.sh
+      args:
+        chdir: "/tmp/gdrcopy-{{ gdrcopy_version }}/packages"
+      environment:
+        CUDA: "{{ cuda_path }}"
+
+    - name: Install gdrcopy driver package
+      apt:
+        deb: "/tmp/gdrcopy-{{ gdrcopy_version }}/packages/gdrdrv-dkms_{{ gdrcopy_version }}-1_amd64.{{ ubuntu_version_tag }}.deb"
+
+    - name: Install gdrcopy API library package
+      apt:
+        deb: "/tmp/gdrcopy-{{ gdrcopy_version }}/packages/libgdrapi_{{ gdrcopy_version }}-1_amd64.{{ ubuntu_version_tag }}.deb"
+
+    - name: Install gdrcopy test package
+      apt:
+        deb: "/tmp/gdrcopy-{{ gdrcopy_version }}/packages/gdrcopy-tests_{{ gdrcopy_version }}-1_amd64.{{ ubuntu_version_tag }}+{{ cuda_version_tag }}.deb"
+
+    - name: Install gdrcopy main package
+      apt:
+        deb: "/tmp/gdrcopy-{{ gdrcopy_version }}/packages/gdrcopy_{{ gdrcopy_version }}-1_amd64.{{ ubuntu_version_tag }}.deb"

@@ -1,0 +1,73 @@
+---
+- name: Install Intel oneAPI HPC Toolkit (URL-based)
+  hosts: all
+  become: yes
+  vars:
+    # 只要改這一行
+    oneapi_url: "https://registrationcenter-download.intel.com/akdlm/IRC_NAS/e974de81-57b7-4ac1-b039-0512f8df974e/intel-oneapi-hpc-toolkit-2025.2.0.575_offline.sh"
+
+    oneapi_installer: "/tmp/{{ oneapi_url | basename }}"
+    oneapi_name: "{{ (oneapi_url | basename).replace('_offline.sh', '') | regex_replace('_', '-') }}"
+    oneapi_version: "{{ oneapi_name.split('-')[-1] }}"
+    oneapi_base_version: "{{ oneapi_version.rsplit('.', 1)[0] }}"
+    oneapi_install_dir: "/opt/intel/{{ oneapi_base_version }}/oneapi"
+    modulefiles_dir: "/opt/modulefiles/intel/{{ oneapi_base_version }}"
+    modulefiles_base_dir: "/opt/modulefiles/intel"
+
+
+  tasks:
+    - name: Info debug
+      debug:
+        msg: "Installing Intel oneAPI HPC Toolkit version {{ oneapi_version }}({{ oneapi_base_version }}) from {{ oneapi_url }} to {{ oneapi_install_dir }}"
+
+    - name: Download Intel oneAPI HPC Toolkit offline installer
+      get_url:
+        url: "{{ oneapi_url }}"
+        dest: "{{ oneapi_installer }}"
+        mode: "0755"
+
+    - name: Install Intel oneAPI HPC Toolkit silently
+      command: >
+        sh {{ oneapi_installer }}
+        -a --silent --eula accept
+        --install-dir {{ oneapi_install_dir }}
+      args:
+        creates: "{{ oneapi_install_dir }}"
+
+    - name: Install required packages for modulefiles
+      apt:
+        name:
+          - tcl
+          - environment-modules
+        state: present
+        update_cache: yes
+
+    - name: Create modulefiles directory structure
+      file:
+        path: "{{ modulefiles_dir }}"
+        state: directory
+        mode: '0755'
+        recurse: yes
+
+    - name: Run modulefiles setup script
+      command: ./modulefiles-setup.sh
+      args:
+        chdir: "{{ oneapi_install_dir }}"
+      async: 15
+      poll: 15
+      ignore_errors: yes
+
+    - name: Copy modulefiles to /opt/modulefiles/intel/<version>/
+      copy:
+        src: "{{ ansible_env.HOME }}/modulefiles/"
+        dest: "{{ modulefiles_dir }}/"
+        remote_src: yes
+        mode: '0755'
+
+    - name: Add oneAPI modulefiles path to /etc/profile.d/modules.sh
+      lineinfile:
+        path: /etc/profile.d/modules.sh
+        line: "module use {{ modulefiles_base_dir }}"
+        create: yes
+        state: present
+        mode: '0644'

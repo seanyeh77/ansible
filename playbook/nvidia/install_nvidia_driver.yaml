@@ -1,0 +1,148 @@
+- name: Install NVIDIA drivers
+  hosts: all
+  gather_facts: yes
+  become: yes
+  vars:
+    nvidia_version: "570.172.08"
+    ubuntu_version: "ubuntu2204"
+    local_deb: "nvidia-driver-local-repo-{{ ubuntu_version }}-{{ nvidia_version }}_1.0-1_amd64.deb"
+    local_url: "https://developer.download.nvidia.com/compute/nvidia-driver/{{ nvidia_version }}/local_installers/{{ local_deb }}"
+    repo_dir: "/var/nvidia-driver-local-repo-{{ ubuntu_version }}-{{ nvidia_version }}"
+    keyring_src: "{{ repo_dir }}/nvidia-driver-*-keyring.gpg"
+    keyring_dest: "/usr/share/keyrings/"
+    profile_script: "/etc/profile.d/cuda.sh"
+    blacklist_file: "/etc/modprobe.d/blacklist-nouveau.conf"
+
+
+  tasks:
+    - name: Update and upgrade apt packages
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+        upgrade: dist
+
+    - name: Install the dependency packages
+      ansible.builtin.apt:
+        name:
+          - nano
+          - vim
+          - git
+          - ca-certificates
+          - wget
+          - curl
+          - cmake
+          - tmux
+        state: present
+        update_cache: yes
+        
+    - name: Get current kernel version
+      command: uname -r
+      register: kernel_version
+      changed_when: false
+      
+    - name: Install linux headers for current kernel
+      ansible.builtin.apt:
+        name: "linux-headers-{{ kernel_version.stdout }}"
+        state: present
+        update_cache: yes
+
+    - name: Download NVIDIA driver local repo .deb
+      ansible.builtin.get_url:
+        url: "{{ local_url }}"
+        dest: "/tmp/{{ local_deb }}"
+        mode: "0644"
+
+    - name: Install local repo package
+      ansible.builtin.apt:
+        deb: "/tmp/{{ local_deb }}"
+        update_cache: yes
+
+    - name: Find the NVIDIA keyring file
+      ansible.builtin.find:
+        paths: "{{ repo_dir }}"
+        patterns: "nvidia-driver-*-keyring.gpg"
+        recurse: no
+      register: found_keyrings
+
+    - name: Debug found keyring paths
+      ansible.builtin.debug:
+        msg: "Keyring file(s): {{ found_keyrings.files | map(attribute='path') | list }}"
+
+    - name: Copy NVIDIA keyring file(s) to system keyrings
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "{{ keyring_dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+        remote_src: yes
+      loop: "{{ found_keyrings.files }}"
+
+    - name: Install CUDA driver version 570
+      ansible.builtin.apt:
+        name: "cuda-drivers-570"
+        state: present
+        update_cache: yes
+
+    - name: Set CUDA PATH and LD_LIBRARY_PATH in profile.d
+      ansible.builtin.copy:
+        dest: "{{ profile_script }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          export PATH=/usr/local/cuda/bin:$PATH
+          export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+    - name: Source profile script (bash login shells will pick up automatically)
+      ansible.builtin.shell: "source {{ profile_script }}"
+      args:
+        executable: /bin/bash
+
+    - name: Blacklist nouveau kernel module
+      community.general.kernel_blacklist:
+        name: nouveau
+        state: present
+        blacklist_file: "{{ blacklist_file }}"
+
+    - name: Add options nouveau modeset=0
+      ansible.builtin.lineinfile:
+        path: "{{ blacklist_file }}"
+        line: "options nouveau modeset=0"
+        create: yes
+
+    - name: Update initramfs
+      ansible.builtin.command: update-initramfs -u
+
+    - name: Reboot system to apply changes
+      ansible.builtin.reboot:
+        test_command: "lsmod | grep nouveau"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+        test_command: uptime
+        msg: "Reboot to apply nouveau blacklist and NVIDIA driver"
+        
+    - name: Get current kernel version
+      command: uname -r
+      register: kernel_version
+      changed_when: false
+
+    - name: Install linux headers for current kernel
+      ansible.builtin.apt:
+        name: "linux-headers-{{ kernel_version.stdout }}"
+        state: present
+        update_cache: yes
+
+
+    - name: Verify nouveau module is disabled
+      ansible.builtin.shell: "lsmod | grep nouveau"
+      register: nouveau_check
+      failed_when: nouveau_check.stdout != ""
+      ignore_errors: false
+    
+    - name: Verify NVIDIA driver installation
+      ansible.builtin.command: "nvidia-smi"
+      register: nvidia_smi_output
+      failed_when: nvidia_smi_output.rc != 0

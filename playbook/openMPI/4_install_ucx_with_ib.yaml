@@ -1,0 +1,54 @@
+---
+- name: Install UCX from source
+  hosts: all
+  become: yes
+  vars:
+    with_ib: true
+    ucx_version: "1.18.1"
+    ucx_url: "https://github.com/openucx/ucx/releases/download/v{{ ucx_version }}/ucx-{{ ucx_version }}.tar.gz"
+    ucx_prefix: "/opt/ucx"
+
+  tasks:
+
+    - name: Download UCX source
+      get_url:
+        url: "{{ ucx_url }}"
+        dest: "/tmp/ucx-{{ ucx_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Extract UCX source
+      unarchive:
+        src: "/tmp/ucx-{{ ucx_version }}.tar.gz"
+        dest: "/tmp"
+        remote_src: yes
+
+    - name: Create build directory
+      file:
+        path: "/tmp/ucx-{{ ucx_version }}/build"
+        state: directory
+
+    - name: Configure UCX
+      command: >
+        ../configure
+        --prefix={{ ucx_prefix }}
+        {% if with_ib %}
+        --with-verbs=/usr
+        --with-rc
+        --with-ud
+        {% endif %}
+        --enable-optimizations
+        --enable-mt
+        --enable-cma
+        --with-gdrcopy=/usr
+      args:
+        chdir: "/tmp/ucx-{{ ucx_version }}/build"
+
+    - name: Build UCX
+      command: make -j"{{ ansible_processor_vcpus | default(8) }}"
+      args:
+        chdir: "/tmp/ucx-{{ ucx_version }}/build"
+
+    - name: Install UCX
+      command: make install
+      args:
+        chdir: "/tmp/ucx-{{ ucx_version }}/build"

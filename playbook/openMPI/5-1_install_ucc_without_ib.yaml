@@ -1,0 +1,72 @@
+---
+- name: Install UCC from source
+  hosts: all
+  become: yes
+  vars:
+    with_ib: false
+    ucc_version: "1.4.4"
+    ucc_url: "https://github.com/openucx/ucc/archive/refs/tags/v{{ ucc_version }}.tar.gz"
+    ucc_prefix: "/opt/ucc/"
+    ucx_prefix: "/opt/ucx/"
+    cuda_gencode: "-gencode arch=compute_70,code=sm_70"
+
+  tasks:
+    - name: apt install required packages
+      apt:
+        name:
+          - librdmacm-dev
+        state: present
+        update_cache: yes
+
+    - name: Download UCC source
+      get_url:
+        url: "{{ ucc_url }}"
+        dest: "/tmp/ucc-{{ ucc_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Extract UCC source
+      unarchive:
+        src: "/tmp/ucc-{{ ucc_version }}.tar.gz"
+        dest: "/tmp"
+        remote_src: yes
+
+    - name: Run autogen.sh
+      command: ./autogen.sh
+      args:
+        chdir: "/tmp/ucc-{{ ucc_version }}"
+        
+    - name: Create build directory
+      file:
+        path: "/tmp/ucc-{{ ucc_version }}/build"
+        state: directory
+
+    - name: Configure UCC
+      command: >
+        ../configure
+        --prefix={{ ucc_prefix }}
+        --with-ucx={{ ucx_prefix }}
+        --with-nvcc-gencode="{{ cuda_gencode }}"
+        --with-rdmacm=/usr
+        --with-nccl=/usr
+        --with-cuda=/usr/local/cuda 
+        --enable-optimizations
+        --with-avx
+        {% if with_ib %}
+        --with-ibverbs=/usr
+        --with-sharp=/opt/mellanox/sharp
+        --with-tls=ucx,nccl,sharp
+        {% else %}
+        --with-tls=ucx,nccl
+        {% endif %}
+      args:
+        chdir: "/tmp/ucc-{{ ucc_version }}/build"
+
+    - name: Build UCC
+      command: make -j"{{ ansible_processor_vcpus | default(8) }}"
+      args:
+        chdir: "/tmp/ucc-{{ ucc_version }}/build"
+
+    - name: Install UCC
+      command: make install
+      args:
+        chdir: "/tmp/ucc-{{ ucc_version }}/build"

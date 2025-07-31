@@ -1,0 +1,46 @@
+---
+- name: Install KNEM from source
+  hosts: all
+  become: yes
+  vars:
+    knem_version: "1.1.4"
+    knem_url: "https://gitlab.inria.fr/knem/knem/uploads//4a43e3eb860cda2bbd5bf5c7c04a24b6/knem-{{ knem_version }}.tar.gz"
+    knem_prefix: "/opt/knem"
+
+  tasks:
+    - name: Ensure build dependencies are installed
+      package:
+        name:
+          - gcc
+          - make
+          - wget
+          - tar
+          - gzip
+        state: present
+
+    - name: Download KNEM source
+      get_url:
+        url: "{{ knem_url }}"
+        dest: "/tmp/knem-{{ knem_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Extract KNEM source
+      unarchive:
+        src: "/tmp/knem-{{ knem_version }}.tar.gz"
+        dest: "/tmp"
+        remote_src: yes
+
+    - name: Configure KNEM
+      command: ./configure --prefix={{ knem_prefix }}
+      args:
+        chdir: "/tmp/knem-{{ knem_version }}"
+
+    - name: Build KNEM
+      command: make -j"{{ ansible_processor_vcpus | default(4) }}"
+      args:
+        chdir: "/tmp/knem-{{ knem_version }}"
+
+    - name: Install KNEM
+      command: make install
+      args:
+        chdir: "/tmp/knem-{{ knem_version }}"

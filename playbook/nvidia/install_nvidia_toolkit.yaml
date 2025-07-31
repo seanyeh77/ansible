@@ -1,0 +1,67 @@
+- name: Install NVIDIA drivers
+  hosts: all
+  gather_facts: yes
+  become: yes
+  vars:
+    cuda_version: "12.8.0"
+    cuda_driver_version: "570"
+    cuda_repo_file: "cuda-repo-ubuntu2204-{{ cuda_version | regex_replace('\\.', '-') | regex_replace('-0$', '') }}-local_{{ cuda_version }}-{{ cuda_driver_version }}.86.10-1_amd64.deb"
+    cuda_repo_dir: "/var/cuda-repo-ubuntu2204-{{ cuda_version | regex_replace('\\.', '-') | regex_replace('-0$', '') }}-local"
+    cuda_keyring_pattern: "cuda-*-keyring.gpg"
+    cuda_pin_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin"
+    cuda_repo_url: "https://developer.download.nvidia.com/compute/cuda/{{ cuda_version }}/local_installers/{{ cuda_repo_file }}"
+    download_dir: "/tmp"
+    keyring_dest: "/usr/share/keyrings/"
+
+  tasks:
+  - name: Update and upgrade apt packages
+    ansible.builtin.apt:
+      update_cache: yes
+      cache_valid_time: 3600
+      upgrade: dist
+
+  - name: Download CUDA pin file
+    ansible.builtin.get_url:
+      url: "{{ cuda_pin_url }}"
+      dest: "{{ download_dir }}/cuda-ubuntu2204.pin"
+
+  - name: Move CUDA pin file
+    ansible.builtin.command:
+      cmd: mv "{{ download_dir }}/cuda-ubuntu2204.pin" /etc/apt/preferences.d/cuda-repository-pin-600
+
+  - name: Download CUDA local repo installer
+    ansible.builtin.get_url:
+      url: "{{ cuda_repo_url }}"
+      dest: "{{ download_dir }}/{{ cuda_repo_file }}"
+
+  - name: Install CUDA repo deb package
+    ansible.builtin.apt:
+      deb: "{{ download_dir }}/{{ cuda_repo_file }}"
+
+  - name: Find the NVIDIA keyring file
+    ansible.builtin.find:
+      paths: "{{ cuda_repo_dir }}"
+      patterns: "{{ cuda_keyring_pattern }}"
+      recurse: no
+    register: found_keyrings
+
+  - name: Debug found keyring paths
+    ansible.builtin.debug:
+      msg: "Keyring file(s): {{ found_keyrings.files | map(attribute='path') | list }}"
+
+  - name: Copy NVIDIA keyring file(s) to system keyrings
+    ansible.builtin.copy:
+      src: "{{ item.path }}"
+      dest: "{{ keyring_dest }}"
+      owner: root
+      group: root
+      mode: "0644"
+      remote_src: yes
+    loop: "{{ found_keyrings.files }}"
+
+
+  - name: Install CUDA toolkit
+    ansible.builtin.apt:
+      name: "cuda-toolkit-{{ cuda_version | regex_replace('\\.', '-') | regex_replace('-0$', '') }}"
+      state: present
+      update_cache: yes

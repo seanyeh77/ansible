@@ -1,0 +1,50 @@
+---
+- name: Build and install NVIDIA NCCL from source
+  hosts: all
+  become: yes
+  vars:
+    nccl_repo: "https://github.com/NVIDIA/nccl.git"
+    nccl_dir: "/tmp/nccl"
+    cuda_home: "/usr/local/cuda"
+    nccl_version: "2.27.7-1"
+    cuda_version_tag: "cuda12.8"
+    deb_arch: "amd64"
+
+  tasks:
+    - name: Ensure required build dependencies are installed
+      apt:
+        name:
+          - build-essential
+          - devscripts
+          - debhelper
+          - fakeroot
+          - pkg-config
+        state: present
+        update_cache: yes
+
+    - name: Clone NCCL repository
+      git:
+        repo: "{{ nccl_repo }}"
+        dest: "{{ nccl_dir }}"
+        version: "v{{ nccl_version }}"
+        force: yes
+
+    - name: Build NCCL source
+      command: make -j"{{ ansible_processor_vcpus | default(8) }}" src.build
+      args:
+        chdir: "{{ nccl_dir }}"
+      environment:
+        CUDA_HOME: "{{ cuda_home }}"
+
+    - name: Build NCCL deb packages
+      command: make -j"{{ ansible_processor_vcpus | default(8) }}" pkg.debian.build
+      args:
+        chdir: "{{ nccl_dir }}"
+
+    - name: Install libnccl2 package
+      apt:
+        deb: "{{ nccl_dir }}/build/pkg/deb/libnccl2_{{ nccl_version }}+{{ cuda_version_tag }}_{{ deb_arch }}.deb"
+
+    - name: Install libnccl-dev package
+      apt:
+        deb: "{{ nccl_dir }}/build/pkg/deb/libnccl-dev_{{ nccl_version }}+{{ cuda_version_tag }}_{{ deb_arch }}.deb"

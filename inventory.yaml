@@ -1,0 +1,12 @@
+all:
+  vars:
+    ansible_connection: ssh
+  hosts:
+    103.124.72.50:
+      ansible_user: ubuntu
+      ansible_ssh_private_key_file: /Users/seanyeh/.ssh/kp1750679364707.pem
+  # node2:
+  #   103.124.72.210:
+  #     ansible_user: ubuntu
+  #     ansible_ssh_private_key_file: /Users/seanyeh/.ssh/kp1750679364707.pem
+
